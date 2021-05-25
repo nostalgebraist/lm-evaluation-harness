@@ -37,7 +37,7 @@ class GPT2LM(LM):
         gpus = torch.cuda.device_count()
         batch_size_per_gpu = batch_size # todo: adaptive batch size
 
-        self.batch_size = batch_size_per_gpu * gpus
+        self.batch_size = max(batch_size, batch_size_per_gpu * gpus)
 
         # TODO: fix multi-gpu
         # if gpus > 1:
@@ -82,10 +82,10 @@ class GPT2LM(LM):
 
                 # TODO: extract out this call so it only gets called once and also somehow figure out partial caching for that
                 string_nll = self._loglikelihood_tokens(rolling_token_windows, disable_tqdm=True)
-                
+
                 # discard is_greedy
                 string_nll = [x[0] for x in string_nll]
-                
+
                 string_nll = sum(string_nll)
                 loglikelihoods.append(string_nll)
 
@@ -105,7 +105,7 @@ class GPT2LM(LM):
 
                 toks = x[1] + x[2]
                 return (-len(toks), tuple(toks))
-            
+
             # TODO: automatic (variable) batch size detection for vectorization
             reord = utils.Reorderer(requests, _collate)
             for chunk in utils.chunks(tqdm(reord.get_reordered(), disable=disable_tqdm), self.batch_size):
@@ -180,7 +180,7 @@ class GPT2LM(LM):
                     res.append(answer)
 
         return reord.get_original(res)
-    
+
     def _model_call(self, inps):
         """
         inps: a torch tensor of shape [batch, sequence]
@@ -190,16 +190,16 @@ class GPT2LM(LM):
         logits retuned from the model
         """
         return self.gpt2(inps)[0][:, :, :50257]
-    
+
     def greedy_until(self, requests):
-        # TODO: implement fully general `until` that handles untils that are 
+        # TODO: implement fully general `until` that handles untils that are
         # multiple tokens or that span multiple tokens correctly
         res = []
 
         def _collate(x):
             toks = self.tokenizer.encode(x[0])
             return (len(toks), x[0])
-        
+
         reord = utils.Reorderer(requests, _collate)
 
         for context, until in tqdm(reord.get_reordered()):
@@ -220,10 +220,10 @@ class GPT2LM(LM):
 
             for term in until:
                 s = s.split(term)[0]
-            
+
             # partial caching
             self.cache_hook.add_partial("greedy_until", (context, until), s)
-            
+
             res.append(s)
-        
+
         return reord.get_original(res)
